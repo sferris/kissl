@@ -1,6 +1,6 @@
-# kissl
+# kissl - Keep it Simple SSL
 
-A small certificate authority manager for lab environments, written in Go using only the standard library.
+A small certificate authority manager for lab environments, written in Go using only the standard library. I don't need anything complicated and I was tired of doing this by hand, so this was born.
 
 kissl provides a modern web interface and REST API for:
 
