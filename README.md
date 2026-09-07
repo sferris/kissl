@@ -217,7 +217,7 @@ The P7B response is a base64-encoded PEM PKCS#7 bundle containing:
 2. The issuing CA certificate
 3. The root CA certificate
 
-Administrator CA and server download URLs also accept `?format=p7b`. Issuing-CA P7B downloads contain the issuing and root certificates.
+The CA overview provides a **Download Chain** link that returns a PEM bundle containing the issuing certificate followed by the root certificate. Administrator certificate download URLs also accept `?format=p7b`.
 
 ### Remove a certificate
 

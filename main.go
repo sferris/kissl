@@ -241,7 +241,7 @@ func (a *App) deleteCA(w http.ResponseWriter, r *http.Request) {
 }
 func (a *App) downloadCA(w http.ResponseWriter, r *http.Request) {
 	kind := r.PathValue("kind")
-	if kind != "root" && kind != "issuing" {
+	if kind != "root" && kind != "issuing" && kind != "chain" {
 		fail(w, 404, "certificate not found")
 		return
 	}
@@ -251,10 +251,18 @@ func (a *App) downloadCA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	paths := []string{filepath.Join(d, kind+"-cert.pem")}
+	pemChain := false
 	if kind == "issuing" {
 		paths = append(paths, filepath.Join(d, "root-cert.pem"))
 	}
-	serveCertificate(w, r, paths, kind+"-ca.pem", kind+"-ca.p7b")
+	if kind == "chain" {
+		paths = []string{
+			filepath.Join(d, "issuing-cert.pem"),
+			filepath.Join(d, "root-cert.pem"),
+		}
+		pemChain = true
+	}
+	serveCertificate(w, r, paths, kind+"-ca.pem", kind+"-ca.p7b", pemChain)
 }
 func (a *App) createServer(w http.ResponseWriter, r *http.Request) {
 	var in struct {
@@ -348,7 +356,7 @@ func (a *App) adminDownloadCert(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, e)
 		return
 	}
-	serveCertificate(w, r, paths, "certificate.pem", "certificate-chain.p7b")
+	serveCertificate(w, r, paths, "certificate.pem", "certificate-chain.p7b", false)
 }
 func (a *App) deleteServer(w http.ResponseWriter, r *http.Request) {
 	if e := a.store.DeleteServer(r.PathValue("id")); e != nil {
@@ -575,7 +583,7 @@ func (a *App) download(w http.ResponseWriter, r *http.Request, id string) {
 		fail(w, 404, "certificate not found")
 		return
 	}
-	serveCertificate(w, r, paths, "certificate.pem", "certificate-chain.p7b")
+	serveCertificate(w, r, paths, "certificate.pem", "certificate-chain.p7b", false)
 }
 func (a *App) removeCert(w http.ResponseWriter, r *http.Request, id string) {
 	if e := a.store.RemoveCertificate(id); e != nil {

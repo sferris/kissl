@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/asn1"
 	"encoding/pem"
 	"errors"
@@ -66,7 +67,7 @@ func encodeP7B(certificates [][]byte) ([]byte, error) {
 	return pem.EncodeToMemory(&pem.Block{Type: "PKCS7", Bytes: contentInfo}), nil
 }
 
-func serveCertificate(w http.ResponseWriter, r *http.Request, paths []string, pemFilename, p7bFilename string) {
+func serveCertificate(w http.ResponseWriter, r *http.Request, paths []string, pemFilename, p7bFilename string, pemChain bool) {
 	format := r.URL.Query().Get("format")
 	if format != "" && format != "pem" && format != "p7b" {
 		fail(w, http.StatusBadRequest, "format must be pem or p7b")
@@ -85,12 +86,15 @@ func serveCertificate(w http.ResponseWriter, r *http.Request, paths []string, pe
 			return
 		}
 		certificates = append(certificates, certificate)
-		if format != "p7b" {
+		if format != "p7b" && !pemChain {
 			break
 		}
 	}
 
 	body := certificates[0]
+	if pemChain {
+		body = bytes.Join(certificates, []byte("\n"))
+	}
 	filename := pemFilename
 	contentType := "application/x-pem-file"
 	if format == "p7b" {

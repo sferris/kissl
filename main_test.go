@@ -139,6 +139,34 @@ func TestRegistrationDisabledAndTokenHashed(t *testing.T) {
 	}
 }
 
+func TestAdminDownloadsCAChainAsPEM(t *testing.T) {
+	s, ts := testApp(t)
+	ca, err := s.CreateCA("Test Lab", 730, 365)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, body := request(t, http.MethodGet, ts.URL+"/admin/ca/"+ca.ID+"/chain", "admin-secret", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("CA chain status = %d: %s", resp.StatusCode, body)
+	}
+	issuingBlock, rest := pem.Decode(body)
+	rootBlock, rest := pem.Decode(rest)
+	if issuingBlock == nil || rootBlock == nil || len(bytes.TrimSpace(rest)) != 0 {
+		t.Fatalf("CA chain did not contain exactly two PEM certificates")
+	}
+	issuing, err := x509.ParseCertificate(issuingBlock.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := x509.ParseCertificate(rootBlock.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(issuing.Subject.CommonName, "Issuing CA") || !strings.Contains(root.Subject.CommonName, "Root CA") {
+		t.Fatalf("unexpected CA chain order: %q, %q", issuing.Subject.CommonName, root.Subject.CommonName)
+	}
+}
+
 func TestDuplicateServerRegistrationIsRejected(t *testing.T) {
 	_, ts := testApp(t)
 	register(t, ts.URL, "Web-01")
