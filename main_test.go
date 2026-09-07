@@ -97,7 +97,7 @@ func TestOpenSSLConfigIsPublicAndContainsDefaults(t *testing.T) {
 		"localityName           = Windsor",
 		"organizationName       = WTFerris Net",
 		"organizationalUnitName = IT Department",
-		"POST https://KISSL_HOST/api/v1/register",
+		"POST " + ts.URL + "/api/v1/register",
 		"Authorization: Bearer TOKEN_FROM_REGISTRATION",
 	} {
 		if !bytes.Contains(b, []byte(expected)) {

@@ -85,14 +85,14 @@ func (a *App) routes() {
 	a.mux.HandleFunc("POST /admin/logout", a.requireAdmin(a.logout))
 	a.mux.HandleFunc("GET /admin/state", a.requireAdmin(a.state))
 	a.mux.HandleFunc("POST /admin/ca", a.requireAdmin(a.createCA))
-	a.mux.HandleFunc("POST /admin/ca/{id}/delete", a.requireAdmin(a.deleteCA))
+	a.mux.HandleFunc("DELETE /admin/ca/{id}", a.requireAdmin(a.deleteCA))
 	a.mux.HandleFunc("GET /admin/ca/{id}/{kind}", a.requireAdmin(a.downloadCA))
 	a.mux.HandleFunc("POST /admin/server", a.requireAdmin(a.createServer))
 	a.mux.HandleFunc("POST /admin/server/certificate", a.requireAdmin(a.createServerCertificate))
 	a.mux.HandleFunc("POST /admin/server/{id}/issue", a.requireAdmin(a.adminIssue))
-	a.mux.HandleFunc("POST /admin/server/{id}/certificate/delete", a.requireAdmin(a.adminDeleteCert))
+	a.mux.HandleFunc("DELETE /admin/server/{id}/certificate", a.requireAdmin(a.adminDeleteCert))
 	a.mux.HandleFunc("GET /admin/server/{id}/certificate", a.requireAdmin(a.adminDownloadCert))
-	a.mux.HandleFunc("POST /admin/server/{id}/delete", a.requireAdmin(a.deleteServer))
+	a.mux.HandleFunc("DELETE /admin/server/{id}", a.requireAdmin(a.deleteServer))
 	a.mux.HandleFunc("POST /admin/credential/{id}/{action}", a.requireAdmin(a.credential))
 	a.mux.HandleFunc("GET /api/v1/openssl.cnf", a.opensslConfig)
 	a.mux.HandleFunc("POST /api/v1/register", a.register)
@@ -411,18 +411,18 @@ func (a *App) opensslConfig(w http.ResponseWriter, r *http.Request) {
 #      openssl req -new -key server.key -out server.csr -config openssl.cnf
 #
 # Register the server. The returned token starts disabled and is shown once:
-#   curl -X POST https://KISSL_HOST/api/v1/register \
+#   curl -X POST KISSL_BASE_URL/api/v1/register \
 #     -H 'Content-Type: application/json' \
 #     -d '{"name":"server.example.lab"}'
 #
 # After an administrator enables the token, submit the CSR as the request body:
-#   curl -X POST 'https://KISSL_HOST/api/v1/ca/CA_ID_FROM_KISSL/server/certificate?valid=90' \
+#   curl -X POST 'KISSL_BASE_URL/api/v1/ca/CA_ID_FROM_KISSL/server/certificate?valid=90' \
 #     -H 'Authorization: Bearer TOKEN_FROM_REGISTRATION' \
 #     -H 'Content-Type: application/pkcs10' \
 #     --data-binary @server.csr
 #
 # Download the issued certificate:
-#   curl https://KISSL_HOST/api/v1/server/certificate \
+#   curl KISSL_BASE_URL/api/v1/server/certificate \
 #     -H 'Authorization: Bearer TOKEN_FROM_REGISTRATION' \
 #     -o server.crt
 
@@ -455,7 +455,15 @@ DNS.1 = server.example.lab
 	w.Header().Set("Content-Type", "application/x-openssl-conf; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="openssl.cnf"`)
 	w.Header().Set("Cache-Control", "public, max-age=3600")
-	_, _ = io.WriteString(w, config)
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if forwarded := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]); forwarded == "http" || forwarded == "https" {
+		scheme = forwarded
+	}
+	baseURL := scheme + "://" + r.Host
+	_, _ = io.WriteString(w, strings.ReplaceAll(config, "KISSL_BASE_URL", baseURL))
 }
 
 func (a *App) register(w http.ResponseWriter, r *http.Request) {

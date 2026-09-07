@@ -103,7 +103,7 @@ The template contains:
 - Default subject values for WTFerris Net
 - Editable common name and SAN examples
 - Private-key and CSR generation commands
-- Commented API registration, issuance, and download examples
+- Commented API registration, issuance, and download examples using the request's current base URL
 
 After editing the common name and SAN entries, generate a key and CSR:
 
