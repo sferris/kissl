@@ -1,4 +1,4 @@
-# kissl
+# kissl - Keep it Simple SSL
 
 A small certificate authority manager for lab environments, written in Go using only the standard library.
 
