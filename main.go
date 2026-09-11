@@ -81,6 +81,8 @@ func (a *App) routes() {
 	})
 	a.mux.HandleFunc("GET /app.css", asset("web/app.css", "text/css; charset=utf-8"))
 	a.mux.HandleFunc("GET /app.js", asset("web/app.js", "text/javascript; charset=utf-8"))
+	a.mux.HandleFunc("GET /kissl-icon.png", asset("web/kissl-icon.png", "image/png; charset=utf-8"))
+	a.mux.HandleFunc("GET /kissl-logo.png", asset("web/kissl-logo.png", "image/png; charset=utf-8"))
 	a.mux.HandleFunc("POST /admin/login", a.login)
 	a.mux.HandleFunc("POST /admin/logout", a.requireAdmin(a.logout))
 	a.mux.HandleFunc("GET /admin/state", a.requireAdmin(a.state))
