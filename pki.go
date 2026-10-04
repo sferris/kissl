@@ -148,8 +148,8 @@ func parseKey(path string) (*ecdsa.PrivateKey, error) {
 }
 func parseCSR(data []byte) (*x509.CertificateRequest, error) {
 	p, rest := pem.Decode(data)
-	if p == nil || p.Type != "CERTIFICATE REQUEST" {
-		return nil, errors.New("expected PEM CERTIFICATE REQUEST")
+	if p == nil || (p.Type != "CERTIFICATE REQUEST" && p.Type != "NEW CERTIFICATE REQUEST") {
+		return nil, errors.New("expected PEM CERTIFICATE REQUEST or NEW CERTIFICATE REQUEST")
 	}
 	if len(rest) > 0 {
 		return nil, errors.New("unexpected data after CSR")

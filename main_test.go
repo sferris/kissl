@@ -85,6 +85,25 @@ func csrPEM(t *testing.T) string {
 	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der}))
 }
 
+func TestParseCSRPEMLabels(t *testing.T) {
+	original, _ := pem.Decode([]byte(csrPEM(t)))
+	for _, label := range []string{"CERTIFICATE REQUEST", "NEW CERTIFICATE REQUEST"} {
+		t.Run(label, func(t *testing.T) {
+			data := pem.EncodeToMemory(&pem.Block{Type: label, Bytes: original.Bytes})
+			csr, err := parseCSR(data)
+			if err != nil {
+				t.Fatalf("parse CSR with %q label: %v", label, err)
+			}
+			if csr.Subject.CommonName != "node.lab" {
+				t.Fatalf("common name = %q, want node.lab", csr.Subject.CommonName)
+			}
+		})
+	}
+	if _, err := parseCSR(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: original.Bytes})); err == nil {
+		t.Fatal("expected non-CSR PEM label to be rejected")
+	}
+}
+
 func TestOpenSSLConfigIsPublicAndContainsDefaults(t *testing.T) {
 	_, ts := testApp(t)
 	resp, b := request(t, http.MethodGet, ts.URL+"/api/v1/openssl.cnf", "", "")
