@@ -98,6 +98,16 @@ curl -o openssl.cnf \
   http://localhost:8080/api/v1/openssl.cnf
 ```
 
+To prefill both `commonName` and `DNS.1` with the requesting server's name, pass its DNS hostname explicitly (for example, from `hostname -f` on that server):
+
+```sh
+curl -G -o openssl.cnf \
+  --data-urlencode "hostname=$(hostname -f)" \
+  http://localhost:8080/api/v1/openssl.cnf
+```
+
+Check that the hostname resolves to the server before generating the CSR. The HTTP request alone does not reliably identify the client's DNS hostname, especially behind proxies or NAT.
+
 The template contains:
 
 - Default subject values for WTFerris Net
@@ -105,7 +115,7 @@ The template contains:
 - Private-key and CSR generation commands
 - Commented API registration, issuance, and download examples using the request's current base URL
 
-After editing the common name and SAN entries, generate a key and CSR:
+After confirming the common name and SAN entries, generate a key and CSR:
 
 ```sh
 openssl genpkey \
@@ -121,6 +131,17 @@ openssl req \
 ```
 
 Keep `server.key` on the server. kissl only needs the CSR.
+
+### Download CA certificates
+
+Root and issuing CA certificates are public; the full chain download still requires administrator authentication:
+
+```sh
+curl -o root-ca.pem http://localhost:8080/admin/ca/CA_ID/root
+curl -o issuing-ca.pem http://localhost:8080/admin/ca/CA_ID/issuing
+```
+
+Add `?format=p7b` to either URL to download a PKCS#7 bundle instead. The issuing download includes the root certificate in its bundle.
 
 ### Register a server
 

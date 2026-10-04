@@ -88,7 +88,7 @@ func (a *App) routes() {
 	a.mux.HandleFunc("GET /admin/state", a.requireAdmin(a.state))
 	a.mux.HandleFunc("POST /admin/ca", a.requireAdmin(a.createCA))
 	a.mux.HandleFunc("DELETE /admin/ca/{id}", a.requireAdmin(a.deleteCA))
-	a.mux.HandleFunc("GET /admin/ca/{id}/{kind}", a.requireAdmin(a.downloadCA))
+	a.mux.HandleFunc("GET /admin/ca/{id}/{kind}", a.downloadCAWithAuth)
 	a.mux.HandleFunc("POST /admin/server", a.requireAdmin(a.createServer))
 	a.mux.HandleFunc("POST /admin/server/certificate", a.requireAdmin(a.createServerCertificate))
 	a.mux.HandleFunc("POST /admin/server/{id}/issue", a.requireAdmin(a.adminIssue))
@@ -241,6 +241,14 @@ func (a *App) deleteCA(w http.ResponseWriter, r *http.Request) {
 	}
 	jsonOut(w, 200, map[string]bool{"ok": true})
 }
+func (a *App) downloadCAWithAuth(w http.ResponseWriter, r *http.Request) {
+	if kind := r.PathValue("kind"); kind == "root" || kind == "issuing" {
+		a.downloadCA(w, r)
+		return
+	}
+	a.requireAdmin(a.downloadCA)(w, r)
+}
+
 func (a *App) downloadCA(w http.ResponseWriter, r *http.Request) {
 	kind := r.PathValue("kind")
 	if kind != "root" && kind != "issuing" && kind != "chain" {
@@ -414,7 +422,7 @@ func (a *App) requireServer(next func(http.ResponseWriter, *http.Request, string
 func (a *App) opensslConfig(w http.ResponseWriter, r *http.Request) {
 	const config = `# kissl OpenSSL CSR template
 #
-# 1. Edit commonName and the alt_names entries below for this server.
+# 1. Confirm commonName and the alt_names entries below match this server.
 # 2. Generate a private key (keep server.key private):
 #      openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out server.key
 # 3. Generate the CSR to submit to kissl:
@@ -449,7 +457,7 @@ stateOrProvinceName    = Colorado
 localityName           = Windsor
 organizationName       = WTFerris Net
 organizationalUnitName = IT Department
-commonName             = server.example.lab
+commonName             = SERVER_HOSTNAME
 
 [ request_extensions ]
 basicConstraints = critical, CA:false
@@ -458,10 +466,17 @@ extendedKeyUsage = serverAuth, clientAuth
 subjectAltName   = @alt_names
 
 [ alt_names ]
-DNS.1 = server.example.lab
+DNS.1 = SERVER_HOSTNAME
 # DNS.2 = alias.example.lab
 # IP.1  = 192.0.2.10
 `
+	hostname := r.URL.Query().Get("hostname")
+	if hostname == "" {
+		hostname = "server.example.lab"
+	} else if !validDNSName(hostname) {
+		fail(w, 400, "hostname must be a valid DNS name")
+		return
+	}
 	w.Header().Set("Content-Type", "application/x-openssl-conf; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="openssl.cnf"`)
 	w.Header().Set("Cache-Control", "public, max-age=3600")
@@ -473,7 +488,30 @@ DNS.1 = server.example.lab
 		scheme = forwarded
 	}
 	baseURL := scheme + "://" + r.Host
-	_, _ = io.WriteString(w, strings.ReplaceAll(config, "KISSL_BASE_URL", baseURL))
+	configText := strings.ReplaceAll(config, "KISSL_BASE_URL", baseURL)
+	configText = strings.ReplaceAll(configText, "SERVER_HOSTNAME", hostname)
+	_, _ = io.WriteString(w, configText)
+}
+
+func validDNSName(name string) bool {
+	if len(name) == 0 || len(name) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(name, ".") {
+		if len(label) == 0 || len(label) > 63 || !isDNSAlnum(label[0]) || !isDNSAlnum(label[len(label)-1]) {
+			return false
+		}
+		for i := 1; i < len(label)-1; i++ {
+			if !isDNSAlnum(label[i]) && label[i] != '-' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func isDNSAlnum(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
 }
 
 func (a *App) register(w http.ResponseWriter, r *http.Request) {

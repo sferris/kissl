@@ -116,6 +116,8 @@ func TestOpenSSLConfigIsPublicAndContainsDefaults(t *testing.T) {
 		"localityName           = Windsor",
 		"organizationName       = WTFerris Net",
 		"organizationalUnitName = IT Department",
+		"commonName             = server.example.lab",
+		"DNS.1 = server.example.lab",
 		"POST " + ts.URL + "/api/v1/register",
 		"Authorization: Bearer TOKEN_FROM_REGISTRATION",
 	} {
@@ -125,6 +127,25 @@ func TestOpenSSLConfigIsPublicAndContainsDefaults(t *testing.T) {
 	}
 	if disposition := resp.Header.Get("Content-Disposition"); !strings.Contains(disposition, "openssl.cnf") {
 		t.Errorf("Content-Disposition = %q", disposition)
+	}
+}
+
+func TestOpenSSLConfigHostname(t *testing.T) {
+	_, ts := testApp(t)
+	resp, body := request(t, http.MethodGet, ts.URL+"/api/v1/openssl.cnf?hostname=web-01.example.lab", "", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("OpenSSL config status = %d: %s", resp.StatusCode, body)
+	}
+	for _, expected := range []string{"commonName             = web-01.example.lab", "DNS.1 = web-01.example.lab"} {
+		if !bytes.Contains(body, []byte(expected)) {
+			t.Errorf("OpenSSL config missing %q", expected)
+		}
+	}
+	for _, invalid := range []string{"bad%0Avalue", "-invalid", "bad..example", "bad%20name"} {
+		resp, body := request(t, http.MethodGet, ts.URL+"/api/v1/openssl.cnf?hostname="+invalid, "", "")
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("invalid hostname %q: status = %d: %s", invalid, resp.StatusCode, body)
+		}
 	}
 }
 
@@ -155,6 +176,26 @@ func TestRegistrationDisabledAndTokenHashed(t *testing.T) {
 	resp, _ = request(t, http.MethodGet, ts.URL+"/api/v1/server", token, "")
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("revoked credential status = %d, want 401", resp.StatusCode)
+	}
+}
+
+func TestPublicCADownloads(t *testing.T) {
+	s, ts := testApp(t)
+	ca, err := s.CreateCA("Test Lab", 730, 365)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"root", "issuing"} {
+		for _, format := range []string{"", "?format=p7b"} {
+			resp, body := request(t, http.MethodGet, ts.URL+"/admin/ca/"+ca.ID+"/"+kind+format, "", "")
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("public %s%s status = %d: %s", kind, format, resp.StatusCode, body)
+			}
+		}
+	}
+	resp, body := request(t, http.MethodGet, ts.URL+"/admin/ca/"+ca.ID+"/chain", "", "")
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("unauthenticated chain status = %d, want 401: %s", resp.StatusCode, body)
 	}
 }
 
