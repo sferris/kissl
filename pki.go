@@ -1,9 +1,11 @@
 package main
 
 import (
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -29,7 +31,7 @@ func serial() (*big.Int, error) {
 func pemCert(der []byte) []byte {
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 }
-func pemECKey(k *ecdsa.PrivateKey) ([]byte, error) {
+func pemKey(k crypto.Signer) ([]byte, error) {
 	b, e := x509.MarshalPKCS8PrivateKey(k)
 	if e != nil {
 		return nil, e
@@ -37,7 +39,36 @@ func pemECKey(k *ecdsa.PrivateKey) ([]byte, error) {
 	return pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: b}), nil
 }
 
+type CAOptions struct {
+	Purpose            string
+	Organization       string
+	OrganizationalUnit string
+}
+
 func (s *Store) CreateCA(name string, rootDays, issuingDays int) (CAMeta, error) {
+	return s.CreateCAWithOptions(name, rootDays, issuingDays, CAOptions{})
+}
+
+func (s *Store) CreateCAWithOptions(name string, rootDays, issuingDays int, opts CAOptions) (CAMeta, error) {
+	if opts.Purpose != "" && opts.Purpose != "server" && opts.Purpose != "client" {
+		return CAMeta{}, errors.New("purpose must be server or client")
+	}
+	if opts.Purpose == "client" {
+		if opts.Organization == "" {
+			opts.Organization = "WTFerris Net"
+		}
+		if opts.OrganizationalUnit == "" {
+			opts.OrganizationalUnit = "IT Department"
+		}
+		if err := cleanName(opts.Organization); err != nil {
+			return CAMeta{}, fmt.Errorf("organization: %w", err)
+		}
+		if err := cleanName(opts.OrganizationalUnit); err != nil {
+			return CAMeta{}, fmt.Errorf("organizational unit: %w", err)
+		}
+	} else if opts.Organization != "" || opts.OrganizationalUnit != "" {
+		return CAMeta{}, errors.New("organization and organizational unit require client purpose")
+	}
 	if err := cleanName(name); err != nil {
 		return CAMeta{}, err
 	}
@@ -64,7 +95,12 @@ func (s *Store) CreateCA(name string, rootDays, issuingDays int) (CAMeta, error)
 		}
 	}()
 	now := time.Now().UTC()
-	rootKey, e := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	var rootKey crypto.Signer
+	if opts.Purpose == "client" {
+		rootKey, e = rsa.GenerateKey(rand.Reader, 3072)
+	} else {
+		rootKey, e = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	}
 	if e != nil {
 		return CAMeta{}, e
 	}
@@ -73,11 +109,21 @@ func (s *Store) CreateCA(name string, rootDays, issuingDays int) (CAMeta, error)
 		return CAMeta{}, e
 	}
 	root := &x509.Certificate{SerialNumber: rootSerial, Subject: pkix.Name{CommonName: name + " Root CA", Organization: []string{name}}, NotBefore: now.Add(-5 * time.Minute), NotAfter: now.AddDate(0, 0, rootDays), IsCA: true, BasicConstraintsValid: true, MaxPathLen: 1, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature}
-	rootDER, e := x509.CreateCertificate(rand.Reader, root, root, &rootKey.PublicKey, rootKey)
+	if opts.Purpose == "client" {
+		root.Subject = pkix.Name{CommonName: name, Organization: []string{opts.Organization}, OrganizationalUnit: []string{opts.OrganizationalUnit}}
+		root.KeyUsage = x509.KeyUsageCertSign | x509.KeyUsageCRLSign
+		root.SignatureAlgorithm = x509.SHA256WithRSA
+	}
+	rootDER, e := x509.CreateCertificate(rand.Reader, root, root, rootKey.Public(), rootKey)
 	if e != nil {
 		return CAMeta{}, e
 	}
-	issKey, e := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	var issKey crypto.Signer
+	if opts.Purpose == "client" {
+		issKey, e = rsa.GenerateKey(rand.Reader, 3072)
+	} else {
+		issKey, e = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	}
 	if e != nil {
 		return CAMeta{}, e
 	}
@@ -86,19 +132,24 @@ func (s *Store) CreateCA(name string, rootDays, issuingDays int) (CAMeta, error)
 		return CAMeta{}, e
 	}
 	iss := &x509.Certificate{SerialNumber: issSerial, Subject: pkix.Name{CommonName: name + " Issuing CA", Organization: []string{name}}, NotBefore: now.Add(-5 * time.Minute), NotAfter: now.AddDate(0, 0, issuingDays), IsCA: true, BasicConstraintsValid: true, MaxPathLenZero: true, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature}
-	issDER, e := x509.CreateCertificate(rand.Reader, iss, root, &issKey.PublicKey, rootKey)
+	if opts.Purpose == "client" {
+		iss.Subject = pkix.Name{CommonName: name + " Issuing CA", Organization: []string{opts.Organization}, OrganizationalUnit: []string{opts.OrganizationalUnit}}
+		iss.KeyUsage = x509.KeyUsageCertSign | x509.KeyUsageCRLSign
+		iss.SignatureAlgorithm = x509.SHA256WithRSA
+	}
+	issDER, e := x509.CreateCertificate(rand.Reader, iss, root, issKey.Public(), rootKey)
 	if e != nil {
 		return CAMeta{}, e
 	}
-	rootKeyPEM, e := pemECKey(rootKey)
+	rootKeyPEM, e := pemKey(rootKey)
 	if e != nil {
 		return CAMeta{}, e
 	}
-	issKeyPEM, e := pemECKey(issKey)
+	issKeyPEM, e := pemKey(issKey)
 	if e != nil {
 		return CAMeta{}, e
 	}
-	m := CAMeta{ID: id, Name: name, CreatedAt: now, RootNotAfter: root.NotAfter, IssuingNotAfter: iss.NotAfter}
+	m := CAMeta{ID: id, Name: name, CreatedAt: now, RootNotAfter: root.NotAfter, IssuingNotAfter: iss.NotAfter, Purpose: opts.Purpose}
 	files := []struct {
 		name string
 		data []byte
@@ -127,7 +178,7 @@ func parseCert(path string) (*x509.Certificate, error) {
 	}
 	return x509.ParseCertificate(p.Bytes)
 }
-func parseKey(path string) (*ecdsa.PrivateKey, error) {
+func parseKey(path string) (crypto.Signer, error) {
 	b, e := os.ReadFile(path)
 	if e != nil {
 		return nil, e
@@ -140,11 +191,11 @@ func parseKey(path string) (*ecdsa.PrivateKey, error) {
 	if e != nil {
 		return nil, e
 	}
-	ec, ok := k.(*ecdsa.PrivateKey)
+	signer, ok := k.(crypto.Signer)
 	if !ok {
-		return nil, errors.New("key is not ECDSA")
+		return nil, errors.New("key cannot sign certificates")
 	}
-	return ec, nil
+	return signer, nil
 }
 func parseCSR(data []byte) (*x509.CertificateRequest, error) {
 	p, rest := pem.Decode(data)
@@ -193,6 +244,10 @@ func (s *Store) Issue(id, caID string, csrPEM []byte, days int) (ServerMeta, err
 	if e != nil {
 		return ServerMeta{}, e
 	}
+	var ca CAMeta
+	if e = readJSON(filepath.Join(caDir, "metadata.json"), &ca); e != nil {
+		return ServerMeta{}, e
+	}
 	now := time.Now().UTC()
 	notAfter := now.Add(time.Duration(days) * 24 * time.Hour)
 	if notAfter.After(iss.NotAfter) {
@@ -203,6 +258,10 @@ func (s *Store) Issue(id, caID string, csrPEM []byte, days int) (ServerMeta, err
 		return ServerMeta{}, e
 	}
 	tpl := &x509.Certificate{SerialNumber: sn, Subject: csr.Subject, NotBefore: now.Add(-5 * time.Minute), NotAfter: notAfter, KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}, BasicConstraintsValid: true, DNSNames: csr.DNSNames, IPAddresses: csr.IPAddresses, EmailAddresses: csr.EmailAddresses, URIs: cloneURLs(csr.URIs)}
+	if ca.Purpose == "client" {
+		tpl.KeyUsage = x509.KeyUsageDigitalSignature
+		tpl.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}
+	}
 	der, e := x509.CreateCertificate(rand.Reader, tpl, iss, csr.PublicKey, key)
 	if e != nil {
 		return ServerMeta{}, e

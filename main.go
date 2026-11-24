@@ -220,14 +220,17 @@ func (a *App) state(w http.ResponseWriter, r *http.Request) {
 }
 func (a *App) createCA(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Name        string `json:"name"`
-		RootDays    int    `json:"root_days"`
-		IssuingDays int    `json:"issuing_days"`
+		Name               string `json:"name"`
+		RootDays           int    `json:"root_days"`
+		IssuingDays        int    `json:"issuing_days"`
+		Purpose            string `json:"purpose"`
+		Organization       string `json:"organization"`
+		OrganizationalUnit string `json:"organizational_unit"`
 	}
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	m, e := a.store.CreateCA(strings.TrimSpace(in.Name), in.RootDays, in.IssuingDays)
+	m, e := a.store.CreateCAWithOptions(strings.TrimSpace(in.Name), in.RootDays, in.IssuingDays, CAOptions{Purpose: in.Purpose, Organization: strings.TrimSpace(in.Organization), OrganizationalUnit: strings.TrimSpace(in.OrganizationalUnit)})
 	if e != nil {
 		fail(w, 400, e)
 		return

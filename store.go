@@ -27,6 +27,7 @@ type CAMeta struct {
 	CreatedAt       time.Time `json:"created_at"`
 	RootNotAfter    time.Time `json:"root_not_after"`
 	IssuingNotAfter time.Time `json:"issuing_not_after"`
+	Purpose         string    `json:"purpose,omitempty"`
 }
 
 type ServerMeta struct {

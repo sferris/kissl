@@ -58,6 +58,12 @@ The web interface supports:
 
 New server credentials are disabled by default. An administrator must enable them before the server can use authenticated API endpoints.
 
+### mTLS client certificate authority
+
+Choose **mTLS client certificates (RSA-3072)** when creating an authority. Enter the desired root CA common name (for example, `OpenBao Client CA`) as the authority name; O and OU default to `WTFerris Net` and `IT Department`. This profile creates an RSA-3072 root and issuing CA signed with SHA-256, both with critical `CA:TRUE` basic constraints and critical `keyCertSign,cRLSign` key usage. Certificates issued through this authority have **clientAuth only** (not serverAuth), regardless of the requested CSR extensions. Install the root CA certificate as a trusted client CA in the mTLS server, then issue client certificates using this authority. The issuing certificate accompanies its download for chain building.
+
+The default authority profile remains ECDSA P-256 and continues to issue server/client-auth certificates. The mTLS client profile applies only to newly created authorities; existing authorities are unchanged.
+
 ## Filesystem layout
 
 ```text
@@ -302,7 +308,7 @@ The final Alpine container runs as the unprivileged `kissl` user. All certificat
 
 kissl is intended for lab use, but includes moderate protections:
 
-- ECDSA P-256 root and issuing CA keys
+- ECDSA P-256 root and issuing CA keys by default; optional RSA-3072 mTLS client CA profile
 - Random 128-bit certificate serial numbers
 - CSR signature validation
 - CA and leaf validity limits

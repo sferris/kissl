@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
@@ -176,6 +177,76 @@ func TestRegistrationDisabledAndTokenHashed(t *testing.T) {
 	resp, _ = request(t, http.MethodGet, ts.URL+"/api/v1/server", token, "")
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("revoked credential status = %d, want 401", resp.StatusCode)
+	}
+}
+
+func TestClientCAProfile(t *testing.T) {
+	s, ts := testApp(t)
+	resp, body := request(t, http.MethodPost, ts.URL+"/admin/ca", "admin-secret", `{"name":"OpenBao Client CA","root_days":3650,"issuing_days":1825,"purpose":"client"}`)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create client CA status = %d: %s", resp.StatusCode, body)
+	}
+	var ca CAMeta
+	if err := json.Unmarshal(body, &ca); err != nil {
+		t.Fatal(err)
+	}
+	if ca.Purpose != "client" {
+		t.Fatalf("CA purpose = %q, want client", ca.Purpose)
+	}
+	d, err := s.caDir(ca.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := parseCert(filepath.Join(d, "root-cert.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	issuing, err := parseCert(filepath.Join(d, "issuing-cert.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, cert := range []*x509.Certificate{root, issuing} {
+		key, ok := cert.PublicKey.(*rsa.PublicKey)
+		if !ok || key.N.BitLen() != 3072 {
+			t.Errorf("%s public key is not RSA-3072", cert.Subject.CommonName)
+		}
+		if !cert.IsCA || cert.KeyUsage != x509.KeyUsageCertSign|x509.KeyUsageCRLSign || cert.SignatureAlgorithm != x509.SHA256WithRSA {
+			t.Errorf("unexpected CA extensions or signature algorithm: %s", cert.Subject.CommonName)
+		}
+		for _, oid := range []asn1.ObjectIdentifier{{2, 5, 29, 19}, {2, 5, 29, 15}} {
+			found := false
+			for _, ext := range cert.Extensions {
+				if ext.Id.Equal(oid) {
+					found = ext.Critical
+				}
+			}
+			if !found {
+				t.Errorf("%s missing critical extension %s", cert.Subject.CommonName, oid)
+			}
+		}
+		if len(cert.Subject.Organization) != 1 || cert.Subject.Organization[0] != "WTFerris Net" || len(cert.Subject.OrganizationalUnit) != 1 || cert.Subject.OrganizationalUnit[0] != "IT Department" {
+			t.Errorf("unexpected CA subject: %s", cert.Subject)
+		}
+	}
+	if root.Subject.CommonName != "OpenBao Client CA" || issuing.Subject.CommonName != "OpenBao Client CA Issuing CA" {
+		t.Fatalf("unexpected CA common names: %q, %q", root.Subject.CommonName, issuing.Subject.CommonName)
+	}
+	if err := issuing.CheckSignatureFrom(root); err != nil {
+		t.Fatal(err)
+	}
+	id, _ := register(t, ts.URL, "client-01")
+	if _, err := s.Issue(id, ca.ID, []byte(csrPEM(t)), 90); err != nil {
+		t.Fatal(err)
+	}
+	clientCert, err := parseCert(filepath.Join(s.dir, "servers", id, "cert.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(clientCert.ExtKeyUsage) != 1 || clientCert.ExtKeyUsage[0] != x509.ExtKeyUsageClientAuth || clientCert.KeyUsage != x509.KeyUsageDigitalSignature {
+		t.Fatalf("unexpected client certificate usages: %v, %v", clientCert.ExtKeyUsage, clientCert.KeyUsage)
+	}
+	if err := clientCert.CheckSignatureFrom(issuing); err != nil {
+		t.Fatal(err)
 	}
 }
 
